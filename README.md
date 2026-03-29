@@ -28,8 +28,9 @@ O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, c
   - Acessos identificados como bots são descartados automaticamente.
 
 - **Proteção contra Abuso**
-  - Validação de domínio de origem (`Origin` / `Referer`).
+  - Validação de domínio de origem via parsing de URL (`Origin` / `Referer`).
   - Autenticação opcional via token customizado (`X-Track-Token`).
+  - Rate limiting por IP (10 requisições/minuto) para prevenção de flood.
   - Bloqueio explícito de requisições não autorizadas.
 
 - **Relatórios Diários via E-mail**
@@ -60,11 +61,13 @@ python .\preview.py
 Endpoint responsável por registrar uma visita válida.
 
 Regras:
+
 - Origem deve pertencer ao domínio autorizado.
 - Token de rastreamento deve ser válido (quando configurado).
 - Bots são ignorados automaticamente.
 
 Headers esperados:
+
 - `Origin` ou `Referer`
 - `User-Agent`
 - `X-Track-Token` (opcional, se habilitado)
@@ -79,43 +82,49 @@ Endpoint responsável por gerar e enviar o relatório diário.
 - Deve ser acionado por um job externo (cron, pipeline, scheduler).
 
 Header obrigatório:
+
 - `Authorization: Bearer <CRON_SECRET>`
 
 ### Fluxo de Funcionamento
 
 1. O front-end do portfólio envia um `POST` para `/track-visit`.
-2. O serviço valida domínio, token e User-Agent.
-3. Visitas válidas são agregadas no Redis por data e horário.
-4. Um job externo executa um `POST` em `/send-report`.
-5. O relatório do dia anterior é gerado e enviado por e-mail.
+2. O serviço valida domínio (via URL parsing), token e User-Agent.
+3. Requisições que excedem o rate limit são descartadas silenciosamente.
+4. Visitas válidas são agregadas no Redis por data e horário.
+5. Um job externo executa um `POST` em `/send-report`.
+6. O relatório do dia anterior é gerado e enviado por e-mail.
 
 ### Variáveis de Ambiente
 
-| Variável                 | Descrição                                                                |
-|--------------------------|--------------------------------------------------------------------------|
-| `RESEND_API_KEY`         | Chave de API do serviço Resend.                                          |
-| `EMAIL_TO`               | Endereço de e-mail que receberá o relatório.                             |
-| `RESEND_FROM`            | E-mail remetente utilizado no envio.                                     |
-| `UPSTASH_REDIS_REST_URL` | URL de conexão com o Redis (Upstash).                                    |
-| `CRON_SECRET`            | Token Bearer para autenticar o envio do relatório.                       |
-| `TRACK_TOKEN`            | Token opcional para autenticar o endpoint de tracking.                   |
-| `ALLOWED_DOMAIN`         | Domínio autorizado a registrar visitas.                                  |
-| `PORT`                   | Porta de execução da aplicação (default: 8080).                          |
+| Variável                 | Descrição                                              |
+| ------------------------ | ------------------------------------------------------ |
+| `RESEND_API_KEY`         | Chave de API do serviço Resend.                        |
+| `EMAIL_TO`               | Endereço de e-mail que receberá o relatório.           |
+| `RESEND_FROM`            | E-mail remetente utilizado no envio.                   |
+| `UPSTASH_REDIS_REST_URL` | URL de conexão com o Redis (Upstash).                  |
+| `CRON_SECRET`            | Token Bearer para autenticar o envio do relatório.     |
+| `TRACK_TOKEN`            | Token opcional para autenticar o endpoint de tracking. |
+| `ALLOWED_DOMAIN`         | Domínio autorizado a registrar visitas.                |
+| `PORT`                   | Porta de execução da aplicação (default: 8080).        |
 
 ### Segurança
 
-- Validação explícita de domínio de origem.
+- Validação de domínio de origem via parsing de URL (comparação exata do hostname).
 - Autenticação por token no tracking e no disparo de relatórios.
+- Rate limiting por IP para prevenção de flood e abuso.
+- Comparação de tokens em tempo constante (proteção contra timing attacks).
 - Nenhum dado sensível do visitante é coletado ou persistido.
 
 ### Privacidade e Transparência
 
 Este projeto foi construído com foco absoluto em privacidade.
 
-**Nenhum dado pessoal é coletado, processado ou armazenado.**  
+**Nenhum dado pessoal é coletado, processado ou armazenado de forma permanente.**  
 O sistema opera exclusivamente com **contadores agregados**, sem qualquer forma de identificação do usuário final.
 
-Por não lidar com dados pessoais, o projeto está alinhado às diretrizes da **LGPD**.
+Endereços IP são utilizados **exclusivamente para rate limiting**, armazenados em chaves Redis com TTL de 60 segundos e sem associação a qualquer dado de navegação.
+
+Por não lidar com dados pessoais identificáveis, o projeto está alinhado às diretrizes da **LGPD**.
 
 ---
 
@@ -147,8 +156,9 @@ The system works as a **secure ultra-lightweight analytics microservice**, count
   - Bot traffic is ignored.
 
 - **Abuse Protection**
-  - Allowed domain validation.
+  - Allowed domain validation via URL parsing.
   - Optional tracking token authentication.
+  - IP-based rate limiting (10 requests/minute) to prevent flooding.
   - Explicit request blocking when validation fails.
 
 - **Daily Email Reports**
@@ -177,11 +187,13 @@ python .\preview.py
 Endpoint responsible for registering a valid visit.
 
 Rules:
+
 - The request origin must belong to an authorized domain.
 - The tracking token must be valid (when configured).
 - Bots are automatically ignored.
 
 Expected headers:
+
 - `Origin` or `Referer`
 - `User-Agent`
 - `X-Track-Token` (optional, if enabled)
@@ -196,38 +208,46 @@ Endpoint responsible for generating and sending the daily report.
 - Must be triggered by an external job (cron, pipeline, scheduler).
 
 Required header:
+
 - `Authorization: Bearer <CRON_SECRET>`
 
 ### Execution Flow
 
-1. The portfolio front-end sends a `POST` request to `/track-visit`. 
-2. The service validates the domain, token, and User-Agent. 
-3. Valid visits are aggregated in Redis by date and hour.
-4. An external job triggers a `POST` request to `/send-report`.
-5. The report for the previous day is generated and sent via email.
+1. The portfolio front-end sends a `POST` request to `/track-visit`.
+2. The service validates the domain (via URL parsing), token, and User-Agent.
+3. Requests exceeding the rate limit are silently discarded.
+4. Valid visits are aggregated in Redis by date and hour.
+5. An external job triggers a `POST` request to `/send-report`.
+6. The report for the previous day is generated and sent via email.
 
 ### Environment Variables
 
-| Variable                 | Description                                                              |
-|--------------------------|--------------------------------------------------------------------------|
-| `RESEND_API_KEY`         | Resend API key.                                                          |
-| `EMAIL_TO`               | Email address that will receive the report.                              |
-| `RESEND_FROM`            | Sender email used by Resend.                                             |
-| `UPSTASH_REDIS_REST_URL` | Redis connection URL (Upstash).                                          |
-| `CRON_SECRET`            | Bearer token to trigger the report endpoint.                             |
-| `TRACK_TOKEN`            | Optional token to authenticate tracking requests.                        |
-| `ALLOWED_DOMAIN`         | Authorized domain for visit tracking.                                    |
-| `PORT`                   | Application port (default: 8080).                                        |
+| Variable                 | Description                                       |
+| ------------------------ | ------------------------------------------------- |
+| `RESEND_API_KEY`         | Resend API key.                                   |
+| `EMAIL_TO`               | Email address that will receive the report.       |
+| `RESEND_FROM`            | Sender email used by Resend.                      |
+| `UPSTASH_REDIS_REST_URL` | Redis connection URL (Upstash).                   |
+| `CRON_SECRET`            | Bearer token to trigger the report endpoint.      |
+| `TRACK_TOKEN`            | Optional token to authenticate tracking requests. |
+| `ALLOWED_DOMAIN`         | Authorized domain for visit tracking.             |
+| `PORT`                   | Application port (default: 8080).                 |
 
 ### Security
 
-- Explicit validation of the request origin domain.
+- Origin domain validation via URL parsing (exact hostname comparison).
 - Token-based authentication for both tracking and report triggering.
+- IP-based rate limiting to prevent flooding and abuse.
+- Constant-time token comparison (timing attack protection).
 - No sensitive visitor data is collected or persisted.
 
 ### Privacy & Transparency
 
 This project was built with a strict privacy-first approach.
 
-**No personal data is collected, processed, or stored.**  
-The system operates exclusively with aggregated counters, making it inherently compliant with **LGPD** guidelines.
+**No personal data is collected, processed, or permanently stored.**  
+The system operates exclusively with aggregated counters, without any form of end-user identification.
+
+IP addresses are used **solely for rate limiting**, stored in Redis keys with a 60-second TTL, and are never associated with any browsing data.
+
+By not handling personally identifiable data, the project is inherently compliant with **LGPD** guidelines.

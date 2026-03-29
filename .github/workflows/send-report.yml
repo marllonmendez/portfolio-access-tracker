@@ -14,6 +14,6 @@ jobs:
           REPORT_API_URL: ${{ secrets.REPORT_API_URL }}
         run: |
           curl -X POST \
+            -f \
             -H "Authorization: Bearer $CRON_SECRET" \
-            -v \
             $REPORT_API_URL
