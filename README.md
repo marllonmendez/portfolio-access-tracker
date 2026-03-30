@@ -9,7 +9,8 @@ O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, c
 ### Tecnologias Utilizadas
 
 - **Linguagem:** Python 3
-- **Framework Web:** Flask
+- **Framework Web:** Flask (com Flask-CORS)
+- **Filtro de Bots:** Pacote `user-agents`
 - **Servidor de Produção:** Gunicorn (com suporte a threads)
 - **Banco de Dados (Cache):** Redis (via [Upstash](https://upstash.com/))
 - **Template Engine:** Jinja2 (HTML/CSS Dinâmico)
@@ -34,7 +35,7 @@ O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, c
   - Bloqueio explícito de requisições não autorizadas.
 
 - **Relatórios Diários via E-mail**
-  - Relatório automático referente ao **dia anterior**.
+  - Relatório automático referente ao **dia anterior** (baseado no fuso horário de Brasília - BRT / UTC-3).
   - Total de visitas agregadas.
   - Distribuição de acessos por faixa horária.
   - Template HTML renderizado com Jinja2.
@@ -43,6 +44,10 @@ O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, c
 - **Gerenciamento de Recursos**
   - TTL automático de 48 horas para chaves no Redis.
   - Projeto otimizado para planos gratuitos.
+
+- **Tolerância a Falhas (Graceful Degradation)**
+  - O sistema tolera instabilidades no Redis. Conexões perdidas geram alertas de log silenciosos, enquanto os clientes recebem resposta status `204 No Content` para evitar que o frontend trave.
+  - Retorna erro `503` caso o Redis fique ausente ou não seja configurado.
 
 ### Visualização do Relatório
 
@@ -110,8 +115,9 @@ Header obrigatório:
 ### Segurança
 
 - Validação de domínio de origem via parsing de URL (comparação exata do hostname).
+- Configuração estrita de **CORS** limitando requisições APENAS da origem listada no `ALLOWED_DOMAIN`.
 - Autenticação por token no tracking e no disparo de relatórios.
-- Rate limiting por IP para prevenção de flood e abuso.
+- Rate limiting por IP (com leitura do real IP através do header `X-Forwarded-For`) para prevenção de flood e abuso.
 - Comparação de tokens em tempo constante (proteção contra timing attacks).
 - Nenhum dado sensível do visitante é coletado ou persistido.
 
@@ -137,7 +143,8 @@ The system works as a **secure ultra-lightweight analytics microservice**, count
 ### Technologies Used
 
 - **Language:** Python 3
-- **Web Framework:** Flask
+- **Web Framework:** Flask (with Flask-CORS)
+- **Bot Filtering:** `user-agents` package
 - **Production Server:** Gunicorn (with thread support)
 - **Database (Cache):** Redis (via [Upstash](https://upstash.com/))
 - **Template Engine**: Jinja2 (Dynamic HTML/CSS)
@@ -162,13 +169,17 @@ The system works as a **secure ultra-lightweight analytics microservice**, count
   - Explicit request blocking when validation fails.
 
 - **Daily Email Reports**
-  - Report generated for the previous day.
+  - Report generated for the previous day (strictly tracked using Brasilia Timezone - BRT / UTC-3).
   - Total visit count and time-based distribution.
   - HTML email rendered with Jinja2.
   - Delivery handled by Resend.
 
 - **Resource Management**
   - Redis keys expire automatically after 48 hours.
+
+- **Fault Tolerance & Resiliency**
+  - Application gracefully degrades when Redis fluctuates. Tracking errors result in silent logs processing a `204 No Content` for clients, ensuring the front-end user experience remains resilient.
+  - Generates an early return (HTTP `503`) if the Redis client drops connection on boot.
 
 ### Email Preview
 
@@ -236,8 +247,9 @@ Required header:
 ### Security
 
 - Origin domain validation via URL parsing (exact hostname comparison).
+- Strict **CORS restriction** via `Flask-CORS` allowing only requests from `ALLOWED_DOMAIN`.
 - Token-based authentication for both tracking and report triggering.
-- IP-based rate limiting to prevent flooding and abuse.
+- IP-based rate limiting with proxy / load balancer support (via `X-Forwarded-For` header) to prevent abuse.
 - Constant-time token comparison (timing attack protection).
 - No sensitive visitor data is collected or persisted.
 
