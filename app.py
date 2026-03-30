@@ -2,9 +2,8 @@ import hmac
 import logging
 import os
 import resend
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 import redis
 from dotenv import load_dotenv
@@ -23,7 +22,7 @@ CRON_SECRET = os.getenv('CRON_SECRET')
 TRACK_TOKEN = os.getenv('TRACK_TOKEN')
 ALLOWED_DOMAIN = os.getenv('ALLOWED_DOMAIN')
 
-BRT_TZ = ZoneInfo("America/Sao_Paulo")
+BRT_TZ = timezone(timedelta(hours=-3), name="BRT")
 
 BOT_PATTERNS = [
     'bot', 'crawler', 'spider', 'scraper', 'curl', 'wget',
@@ -35,7 +34,7 @@ BOT_PATTERNS = [
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
-app = Flask(__name__)   
+app = Flask(__name__)
 CORS(app, origins=[f"https://{ALLOWED_DOMAIN}"] if ALLOWED_DOMAIN else [])
 
 redis_client = None
@@ -49,11 +48,10 @@ if UPSTASH_REDIS_REST_URL:
         redis_client.ping()
         logging.info("Conectado ao Redis com sucesso!")
     except Exception as ex:
-        logging.error(f"Erro ao conectar ao Redis: {ex}.")
+        logging.error(f"Erro ao conectar ao Redis: {ex}")
         redis_client = None
 else:
     logging.warning("UPSTASH_REDIS_REST_URL não definida.")
-
 
 def is_valid_origin(origin):
     if not origin or not ALLOWED_DOMAIN:
@@ -65,7 +63,6 @@ def is_valid_origin(origin):
     except Exception:
         return False
 
-
 def identificar_bot(user_agent_string):
     if not user_agent_string:
         return True
@@ -74,7 +71,6 @@ def identificar_bot(user_agent_string):
         return True
     ua_lower = user_agent_string.lower()
     return any(pattern in ua_lower for pattern in BOT_PATTERNS)
-
 
 def is_rate_limited(ip, max_requests=10, window_seconds=60):
     if not redis_client or not ip:
@@ -87,7 +83,6 @@ def is_rate_limited(ip, max_requests=10, window_seconds=60):
         return current > max_requests
     except Exception:
         return False
-
 
 def send_email(count, log, report_date_to_display):
     if not all([RESEND_API_KEY, EMAIL_TO, RESEND_FROM]):
@@ -121,7 +116,6 @@ def send_email(count, log, report_date_to_display):
         logging.error(f"Erro ao enviar relatório via Resend: {ex}")
         return False
 
-
 def register_visit_in_redis():
     origin = request.headers.get('Origin') or request.headers.get('Referer')
     if not is_valid_origin(origin):
@@ -149,7 +143,8 @@ def register_visit_in_redis():
         logging.warning(f"Rate limit atingido para IP: {client_ip}")
         return True, 204
 
-    now_brt = datetime.now(BRT_TZ)
+    now_utc = datetime.now(timezone.utc)
+    now_brt = now_utc.astimezone(BRT_TZ)
     date_str = now_brt.strftime('%Y-%m-%d')
     hour_str = now_brt.strftime('%H:%M')
     count_key = f"portfolio:count:{date_str}"
@@ -160,10 +155,13 @@ def register_visit_in_redis():
         pipe = redis_client.pipeline()
         pipe.incr(count_key)
         pipe.hincrby(log_key, hour_str, 1)
-        pipe.expire(count_key, ttl_seconds, nx=True)
-        pipe.expire(log_key, ttl_seconds, nx=True)
         results = pipe.execute()
         new_count = results[0]
+
+        if new_count == 1:
+            redis_client.expire(count_key, ttl_seconds)
+            redis_client.expire(log_key, ttl_seconds)
+
         logging.info(f"Visualização registrada: {date_str} {hour_str}. Total do dia: {new_count}")
         return True, 204
     except Exception as ex:
@@ -171,15 +169,17 @@ def register_visit_in_redis():
         logging.info(f"Visita perdida (Redis offline): {date_str} {hour_str}")
         return True, 204
 
-
 def process_report_request():
-    current_job_run_brt = datetime.now(BRT_TZ)
+    now_utc = datetime.now(timezone.utc)
+    current_job_run_brt = now_utc.astimezone(BRT_TZ)
     report_target_date = current_job_run_brt - timedelta(days=1)
     report_target_date_str = report_target_date.strftime('%Y-%m-%d')
     count_key = f"portfolio:count:{report_target_date_str}"
     log_key = f"portfolio:log:{report_target_date_str}"
+    
     if not redis_client:
         return {"message": "Redis desabilitado"}, 503
+        
     try:
         count = int(redis_client.get(count_key) or 0)
         log_raw = redis_client.hgetall(log_key)
@@ -193,22 +193,19 @@ def process_report_request():
         logging.error(f"Erro no processamento do relatório: {ex}")
         return {"message": "Erro interno no servidor."}, 500
 
-
 @app.route('/track-visit', methods=['POST'])
 def track_visit():
     success, status_code = register_visit_in_redis()
     return "", status_code
 
-
 @app.route('/send-report', methods=['POST'])
 def trigger_send_report():
     auth_header = request.headers.get('Authorization')
     expected_token = f"Bearer {CRON_SECRET}"
-    if CRON_SECRET and (not auth_header or not hmac.compare_digest(auth_header, expected_token)):
+    if CRON_SECRET and (not auth_header or not hmac.compare_digest(auth_header.encode('utf-8'), expected_token.encode('utf-8'))):
         return jsonify({"message": "Não Autorizado"}), 401
     response_data, status_code = process_report_request()
     return jsonify(response_data), status_code
-
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8080))
