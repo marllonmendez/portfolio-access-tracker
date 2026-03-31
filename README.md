@@ -4,7 +4,7 @@
 
 Projeto desenvolvido em **Python** para monitorar e notificar a quantidade de visualizações no meu [portfólio pessoal](https://marllonmendez.vercel.app/pt-br).
 
-O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, contabilizando acessos reais em tempo quase real e enviando **relatórios diários por e-mail**, sem coleta de dados pessoais.
+O sistema funciona como um microsserviço de análise **ultra-leve e seguro**, registrando acessos instantaneamente no banco de dados e consolidando essas métricas em **relatórios diários por e-mail**, sem coleta de dados pessoais.
 
 ### Tecnologias Utilizadas
 
@@ -138,7 +138,7 @@ Por não lidar com dados pessoais identificáveis, o projeto está alinhado às 
 
 Project developed in **Python** to monitor and notify the number of views on my [personal portfolio](https://marllonmendez.vercel.app/en).
 
-The system works as a **secure ultra-lightweight analytics microservice**, counting real visits and sending **daily email reports**, without collecting personal data.
+The system works as an **ultra-lightweight and secure** analytics microservice, instantly recording accesses in the database and consolidating these metrics into **daily email reports**, without collecting personal data.
 
 ### Technologies Used
 
